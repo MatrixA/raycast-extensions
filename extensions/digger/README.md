@@ -3,7 +3,7 @@
 **Like `dig`, but for the web.** Comprehensive website intelligence and metadata extraction for Raycast.
 
 <div align="center">
-  <img src="assets/digger.png" width="128" height="128" alt="Digger icon">
+  <img src="media/digger.png" width="128" height="128" alt="Digger icon">
 </div>
 
 <div align="center">
@@ -93,14 +93,19 @@ Configure these in Raycast preferences (`⌘ ,`):
 
 ### Keyboard Shortcuts
 
-| Shortcut  | Action                    |
-| --------- | ------------------------- |
-| `↑` / `↓` | Navigate between sections |
-| `⌘ R`     | Refresh data              |
-| `⌘ C`     | Copy URL                  |
-| `⌘ ⇧ J`   | Copy as JSON              |
-| `⌘ ⇧ M`   | Copy as Markdown          |
-| `⌘ O`     | Open in browser           |
+| macOS     | Windows        | Action                    |
+| --------- | -------------- | ------------------------- |
+| `↑` / `↓` | `↑` / `↓`      | Navigate between sections |
+| `⌘ R`     | `Ctrl R`       | Refresh data              |
+| `⌘ ⇧ C`   | `Ctrl ⇧ C`     | Copy URL                  |
+| `⌘ ⇧ J`   | `Ctrl ⇧ J`     | Copy as JSON              |
+| `⌘ ⇧ M`   | `Ctrl ⇧ M`     | Copy as Markdown          |
+| `⌘ O`     | `Ctrl O`       | Open in browser           |
+| `⌘ ⇧ W`   | `Ctrl ⇧ W`     | Open in Wayback Machine   |
+| `⌘ ⇧ G`   | `Ctrl ⇧ G`     | View on Google            |
+
+In the HTTP Headers list, `⌘ ⇧ C` copies a header's value and `⌘ ⌥ C` copies its
+name. Press `⌘ K` on any section to see every action available there.
 
 ## Examples
 

@@ -7,7 +7,8 @@
 import { environment, showToast, Toast } from "@raycast/api";
 import path from "path";
 import fs from "fs";
-import { rm, mkdir, readFile, writeFile } from "fs/promises";
+import { rm, mkdir, readdir, readFile, writeFile, rename, unlink } from "fs/promises";
+import { randomUUID } from "crypto";
 import { stat } from "fs/promises";
 import { Readable } from "stream";
 import { ReadableStream } from "stream/web";
@@ -18,6 +19,7 @@ import { streamArray } from "stream-json/streamers/StreamArray";
 import { pipeline as streamPipeline } from "stream/promises";
 import { DownloadProgressCallback, ChunkedCacheConfig, ChunkedCacheMeta, CacheIndex, IndexEntry } from "./types";
 import { cacheLogger, fetchLogger } from "./logger";
+import { analyticsCacheFiles } from "./brew/analyticsParse";
 import { NetworkError, ParseError, ensureError } from "./errors";
 
 /// Cache Paths
@@ -46,7 +48,13 @@ export function cachePath(name: string): string {
   return path.join(supportPath, name);
 }
 
-const CACHE_FILES = ["formula.json", "cask.json", "installedv2.json"];
+const CACHE_FILES = [
+  "formula.json",
+  "cask.json",
+  "installedv2.json",
+  // Bulk install analytics backing the popularity sort.
+  ...analyticsCacheFiles,
+];
 
 /**
  * Clear all cached data files (formulae, casks, installed packages).
@@ -88,9 +96,18 @@ export async function clearCache(): Promise<void> {
           // Ignore errors for files that don't exist
         }),
       ),
-      // Clear chunked cache directories
+      // Clear chunked cache directories — include sibling .partial dirs in
+      // case a build was in progress (self-healing on the next build either
+      // way, but keeps the cleared state consistent).
       rm(path.join(environment.supportPath, "formula"), { recursive: true, force: true }).catch(() => {}),
       rm(path.join(environment.supportPath, "cask"), { recursive: true, force: true }).catch(() => {}),
+      rm(path.join(environment.supportPath, "formula.partial"), { recursive: true, force: true }).catch(() => {}),
+      rm(path.join(environment.supportPath, "cask.partial"), { recursive: true, force: true }).catch(() => {}),
+      // Sweep download temps by suffix rather than by name: they carry a random
+      // component, so they cannot be listed, and one can be left behind if a
+      // rename fails. `recursive` so this also covers the chunked cache's
+      // `.partial` DIRECTORIES if they are ever renamed.
+      clearPartials(),
     ]);
 
     cacheLogger.log("Cache clear completed", {
@@ -103,6 +120,23 @@ export async function clearCache(): Promise<void> {
     const error = ensureError(err);
     cacheLogger.error("Failed to clear cache", { error: error.message });
     await showToast(Toast.Style.Failure, "Failed to clear cache", error.message);
+  }
+}
+
+/** Remove every `*.partial` left in the support directory by an interrupted download. */
+async function clearPartials(): Promise<void> {
+  try {
+    const entries = await readdir(environment.supportPath);
+    await Promise.all(
+      entries
+        .filter((entry) => entry.endsWith(".partial"))
+        .map((entry) =>
+          rm(path.join(environment.supportPath, entry), { recursive: true, force: true }).catch(() => {}),
+        ),
+    );
+  } catch (err) {
+    // Report it: "cache cleared" must not be printed over a sweep that never ran.
+    cacheLogger.warn("Could not sweep download temp files", { error: ensureError(err).message });
   }
 }
 
@@ -129,7 +163,7 @@ const valid_keys = [
   "build_dependencies",
   "installed",
   "keg_only",
-  "linked_key",
+  "linked_keg",
   "pinned",
 ];
 
@@ -195,7 +229,17 @@ export async function downloadRemoteToCache(
     complete: false,
   });
 
-  const writeStream = fs.createWriteStream(cachePath);
+  // Stream to a UNIQUE sibling temp file and rename into place.
+  //
+  // The rename is atomic, so a reader never observes a half-written cache file.
+  // The name must be unique per invocation, not just per destination: with a
+  // shared `${cachePath}.partial`, two concurrent downloads of the same URL
+  // still open the same descriptor, and whichever renames first pulls the
+  // pathname out from under the other. A random suffix gives each its own file;
+  // both then rename onto the destination and the last writer wins, with every
+  // intermediate state a complete file.
+  const partialPath = `${cachePath}.${randomUUID()}.partial`;
+  const writeStream = fs.createWriteStream(partialPath);
 
   try {
     if (onProgress) {
@@ -233,11 +277,39 @@ export async function downloadRemoteToCache(
   } catch (streamError) {
     writeStream.destroy();
     try {
-      fs.unlinkSync(cachePath);
+      fs.unlinkSync(partialPath);
     } catch {
       // Ignore cleanup errors
     }
     throw streamError;
+  }
+
+  // Guard against truncated responses that didn't surface as a stream error
+  // (e.g. server closed the connection cleanly after partial body). Leaving
+  // a short file on disk causes every subsequent build to fail with a JSON
+  // parse error since the cached file's mtime gets refreshed each download.
+  // Use the write stream's own counter — bytesDownloaded is only updated when
+  // a progress callback is supplied, so it can't be trusted here.
+  const bytesWritten = writeStream.bytesWritten;
+  if (totalBytes > 0 && bytesWritten < totalBytes) {
+    await unlink(partialPath).catch(() => {});
+    throw new NetworkError(`Truncated download: got ${bytesWritten} of ${totalBytes} bytes`, {
+      url,
+    });
+  }
+
+  // Only now does the file become visible at its real path.
+  //
+  // Two concurrent downloads of the same URL both rename here and the last one
+  // wins. That is accepted, not overlooked: both are complete responses for the
+  // same URL fetched moments apart, so arbitrating by mtime would add a
+  // read-then-rename window — a new race — to choose between two files whose
+  // contents match.
+  try {
+    await rename(partialPath, cachePath);
+  } catch (renameError) {
+    await unlink(partialPath).catch(() => {});
+    throw renameError;
   }
 
   onProgress?.({
@@ -267,7 +339,7 @@ export async function downloadRemoteToCache(
 const CHUNK_SIZE = 500;
 
 /** Current schema version for chunked cache */
-const CHUNKED_CACHE_VERSION = 1;
+export const CHUNKED_CACHE_VERSION = 1;
 
 /**
  * Get configuration for chunked cache paths.
@@ -283,11 +355,11 @@ export function getChunkedCacheConfig(type: "formula" | "cask"): ChunkedCacheCon
 }
 
 /**
- * Get the path for a specific chunk file.
+ * Get the path for a specific chunk file within the given directory.
  */
-function getChunkPath(config: ChunkedCacheConfig, chunkNumber: number): string {
+function getChunkPath(baseDir: string, chunkNumber: number): string {
   const paddedNumber = String(chunkNumber).padStart(4, "0");
-  return path.join(config.baseDir, `chunk-${paddedNumber}.json`);
+  return path.join(baseDir, `chunk-${paddedNumber}.json`);
 }
 
 /**
@@ -364,9 +436,11 @@ export async function buildChunkedCache<T>(
   const buildStartTime = Date.now();
   cacheLogger.log("Building chunked cache", { type: config.type, sourcePath });
 
-  // Reset and ensure directory exists
-  await rm(config.baseDir, { recursive: true, force: true }).catch(() => {});
-  await mkdir(config.baseDir, { recursive: true });
+  // Build into a sibling partial directory so a failed build does not wipe
+  // any existing cache. On success we atomically swap into place.
+  const partialDir = `${config.baseDir}.partial`;
+  await rm(partialDir, { recursive: true, force: true }).catch(() => {});
+  await mkdir(partialDir, { recursive: true });
 
   // Get last modified time from source file (will use this for cache validity)
   let lastModified = Date.now();
@@ -440,7 +514,7 @@ export async function buildChunkedCache<T>(
 
           writePromises.push(
             (async () => {
-              const chunkPath = getChunkPath(config, chunkNum);
+              const chunkPath = getChunkPath(partialDir, chunkNum);
               await writeFile(chunkPath, JSON.stringify(chunkToWrite));
             })(),
           );
@@ -463,15 +537,14 @@ export async function buildChunkedCache<T>(
 
         // Write final partial chunk
         if (currentChunk.length > 0) {
-          const chunkPath = getChunkPath(config, chunkNumber);
+          const chunkPath = getChunkPath(partialDir, chunkNumber);
           await writeFile(chunkPath, JSON.stringify(currentChunk));
           chunkNumber++;
         }
 
-        // Write index
-        await writeFile(config.indexPath, JSON.stringify(index));
+        // Write index and meta into the partial dir
+        await writeFile(path.join(partialDir, "index.json"), JSON.stringify(index));
 
-        // Write meta
         const meta: ChunkedCacheMeta = {
           version: CHUNKED_CACHE_VERSION,
           sourceUrl,
@@ -482,7 +555,12 @@ export async function buildChunkedCache<T>(
           chunkCount: chunkNumber,
           type: config.type,
         };
-        await writeFile(config.metaPath, JSON.stringify(meta));
+        await writeFile(path.join(partialDir, "meta.json"), JSON.stringify(meta));
+
+        // Atomically swap partial -> baseDir. Doing this last means a failed
+        // build leaves any prior cache intact for the fall-back path to use.
+        await rm(config.baseDir, { recursive: true, force: true }).catch(() => {});
+        await rename(partialDir, config.baseDir);
 
         const buildDurationMs = Date.now() - buildStartTime;
         cacheLogger.log("Chunked cache built", {
@@ -495,6 +573,8 @@ export async function buildChunkedCache<T>(
         reportProgress(true);
         resolve();
       } catch (err) {
+        // Clean up the partial dir on any post-stream failure
+        await rm(partialDir, { recursive: true, force: true }).catch(() => {});
         reject(err);
       }
     });
@@ -502,12 +582,13 @@ export async function buildChunkedCache<T>(
     pipeline.on("error", async (err) => {
       signal?.removeEventListener("abort", onAbort);
 
-      // Clean up partial cache
-      try {
-        await rm(config.baseDir, { recursive: true, force: true });
-      } catch {
-        // Ignore cleanup errors
-      }
+      // Wait for any in-flight chunk writes so we can safely remove the dir.
+      // These may reject (e.g. partialDir already removed) — that's expected.
+      await Promise.allSettled(writePromises);
+
+      // Clean up partial build only — leave any existing baseDir intact so
+      // the caller can fall back to stale cache if necessary.
+      await rm(partialDir, { recursive: true, force: true }).catch(() => {});
 
       // If aborted, reject with AbortError instead of ParseError
       if (aborted) {
@@ -524,7 +605,7 @@ export async function buildChunkedCache<T>(
       });
 
       reject(
-        new ParseError("Failed to build chunked cache", {
+        new ParseError(`Failed to build chunked cache: ${err.message}`, {
           cause: err,
         }),
       );
@@ -564,7 +645,7 @@ export async function loadChunks<T>(config: ChunkedCacheConfig, chunkNumbers: Se
   }
 
   const loadPromises = Array.from(chunkNumbers).map(async (chunkNum) => {
-    const chunkPath = getChunkPath(config, chunkNum);
+    const chunkPath = getChunkPath(config.baseDir, chunkNum);
     const content = await readFile(chunkPath, "utf-8");
     const items = JSON.parse(content) as T[];
     return { chunkNum, items };

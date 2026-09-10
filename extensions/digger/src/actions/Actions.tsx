@@ -1,10 +1,10 @@
-import { ActionPanel } from "@raycast/api";
 import { ReactNode } from "react";
+import { ActionPanel } from "@raycast/api";
 import { DiggerResult } from "../types";
 import { BrowserActions } from "./BrowserActions";
+import { CacheActions } from "./CacheActions";
 import { CopyActions } from "./CopyActions";
 import { ExternalActions } from "./ExternalActions";
-import { CacheActions } from "./CacheActions";
 
 interface ActionsProps {
   data: DiggerResult;
@@ -30,7 +30,7 @@ export function Actions({ data, url, onRefresh, sectionActions }: ActionsProps) 
         <ExternalActions url={url} />
       </ActionPanel.Section>
 
-      <ActionPanel.Section title="Cache">
+      <ActionPanel.Section>
         <CacheActions onRefresh={onRefresh} />
       </ActionPanel.Section>
     </ActionPanel>

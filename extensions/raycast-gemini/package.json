@@ -11,7 +11,8 @@
     "ViGeng",
     "anwarulislam",
     "DanielPFitzsimmons",
-    "aleksishere"
+    "aleksishere",
+    "sayaka"
   ],
   "categories": [
     "Productivity",
@@ -24,6 +25,14 @@
       "title": "Command History",
       "subtitle": "Google Gemini",
       "description": "View your command history",
+      "mode": "view",
+      "icon": "gemini-icon.png"
+    },
+    {
+      "name": "setDefaultModel",
+      "title": "Set Default Model",
+      "subtitle": "Google Gemini",
+      "description": "Choose your default Gemini model from the live list of models Google provides",
       "mode": "view",
       "icon": "gemini-icon.png"
     },
@@ -44,40 +53,6 @@
       ],
       "preferences": [
         {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
-        {
           "name": "prompt",
           "title": "System Prompt",
           "description": "The prompt to use for this command.",
@@ -93,7 +68,17 @@
       "subtitle": "Google Gemini",
       "description": "Chat with Google's Gemini Pro",
       "icon": "chat-icon.png",
-      "mode": "view"
+      "mode": "view",
+      "preferences": [
+        {
+          "name": "prompt",
+          "title": "System Prompt",
+          "description": "The shared system prompt to use for AI Chat.",
+          "type": "textfield",
+          "required": false,
+          "default": "You are a helpful assistant. Provide clear, accurate, and concise responses."
+        }
+      ]
     },
     {
       "name": "askAboutScreen",
@@ -111,40 +96,6 @@
         }
       ],
       "preferences": [
-        {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
         {
           "name": "prompt",
           "title": "System Prompt",
@@ -172,40 +123,6 @@
       ],
       "preferences": [
         {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
-        {
           "name": "prompt",
           "title": "System Prompt",
           "description": "The prompt to use for this command.",
@@ -232,40 +149,6 @@
       ],
       "preferences": [
         {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
-        {
           "name": "prompt",
           "title": "System Prompt",
           "description": "The prompt to use for this command.",
@@ -282,40 +165,6 @@
       "icon": "summarize-icon.png",
       "mode": "view",
       "preferences": [
-        {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
         {
           "name": "prompt",
           "title": "System Prompt",
@@ -334,40 +183,6 @@
       "mode": "view",
       "preferences": [
         {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
-        {
           "name": "prompt",
           "title": "System Prompt",
           "description": "The prompt to use for this command.",
@@ -384,40 +199,6 @@
       "icon": "code-icon.png",
       "mode": "view",
       "preferences": [
-        {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
         {
           "name": "prompt",
           "title": "System Prompt",
@@ -436,40 +217,6 @@
       "mode": "view",
       "preferences": [
         {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
-        {
           "name": "prompt",
           "title": "System Prompt",
           "description": "The prompt to use for this command.",
@@ -486,40 +233,6 @@
       "description": "Change tone of selected text to professional",
       "mode": "view",
       "preferences": [
-        {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
         {
           "name": "prompt",
           "title": "System Prompt",
@@ -538,40 +251,6 @@
       "mode": "view",
       "preferences": [
         {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
-        {
           "name": "prompt",
           "title": "System Prompt",
           "description": "The prompt to use for this command.",
@@ -588,40 +267,6 @@
       "description": "Fix spelling and grammar of selected text",
       "mode": "view",
       "preferences": [
-        {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
         {
           "name": "prompt",
           "title": "System Prompt",
@@ -640,40 +285,6 @@
       "mode": "view",
       "preferences": [
         {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
-        {
           "name": "prompt",
           "title": "System Prompt",
           "description": "The prompt to use for this command.",
@@ -690,40 +301,6 @@
       "description": "Make selected text shorter",
       "mode": "view",
       "preferences": [
-        {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
         {
           "name": "prompt",
           "title": "System Prompt",
@@ -749,40 +326,6 @@
         }
       ],
       "preferences": [
-        {
-          "description": "Which model this command uses.",
-          "name": "model",
-          "title": "Model",
-          "type": "dropdown",
-          "required": false,
-          "default": "default",
-          "data": [
-            {
-              "title": "Default",
-              "value": "default"
-            },
-            {
-              "title": "Gemini 2.5 Flash-Lite",
-              "value": "gemini-2.5-flash-lite"
-            },
-            {
-              "title": "Gemini 2.5 Flash",
-              "value": "gemini-2.5-flash"
-            },
-            {
-              "title": "Gemini 2.5 Pro",
-              "value": "gemini-2.5-pro"
-            },
-            {
-              "title": "Gemini 3.0 Flash",
-              "value": "gemini-3-flash-preview"
-            },
-            {
-              "title": "Gemini 3.1 Pro",
-              "value": "gemini-3.1-pro-preview"
-            }
-          ]
-        },
         {
           "name": "prompt",
           "title": "System Prompt",
@@ -817,43 +360,6 @@
       "required": true,
       "title": "Gemini API Key",
       "type": "password"
-    },
-    {
-      "description": "Which model Gemini for Raycast uses by default (unless overriden by individual commands).",
-      "name": "defaultModel",
-      "title": "Model",
-      "type": "dropdown",
-      "required": false,
-      "default": "gemini-2.5-flash",
-      "data": [
-        {
-          "title": "Gemini 2.5 Flash-Lite",
-          "value": "gemini-2.5-flash-lite"
-        },
-        {
-          "title": "Gemini 2.5 Flash",
-          "value": "gemini-2.5-flash"
-        },
-        {
-          "title": "Gemini 2.5 Pro",
-          "value": "gemini-2.5-pro"
-        },
-        {
-          "title": "Gemini 3.0 Flash",
-          "value": "gemini-3-flash-preview"
-        },
-        {
-          "title": "Gemini 3.1 Pro",
-          "value": "gemini-3.1-pro-preview"
-        }
-      ]
-    },
-    {
-      "name": "customModel",
-      "title": "Custom Model",
-      "description": "Custom model in case you use a special model that is not listed in the dropdown. It will override the default model. Keep this empty if you don't have a custom model.",
-      "type": "textfield",
-      "required": false
     },
     {
       "name": "safetyThreshold",

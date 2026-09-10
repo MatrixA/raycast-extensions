@@ -6,113 +6,88 @@ import {
   getUtilizationColor,
   calculateEstimatedUsage,
   calculateAverageUsage,
+  createProgressBar,
 } from "../utils/usage-limits-formatter";
-import { UsageLimitsError, sanitizeCodeBlock } from "../utils/usage-limits-error";
+import { formatDuration } from "../utils/data-formatter";
+import { getLimitRows } from "../utils/limit-rows";
+import { showRemainingUsage } from "../preferences";
 import { ErrorMetadata } from "./ErrorMetadata";
-import { ReactNode } from "react";
 import { STANDARD_ACCESSORIES } from "./common/accessories";
+import React, { ReactNode } from "react";
+import { capitalize } from "es-toolkit";
 
-type UsageLimitsAccessoriesInput = {
-  hasData: boolean;
-  error: UsageLimitsError | null;
-  isStale: boolean;
-  lastFetched: Date | null;
-  fiveHourUtilization: number;
-};
-
-const getUsageLimitsErrorIcon = () => ({
-  source: Icon.ExclamationMark,
-  tintColor: Color.Red,
-});
-
-const getUsageLimitsAccessories = ({
-  hasData,
-  error,
-  isStale,
-  lastFetched,
-  fiveHourUtilization,
-}: UsageLimitsAccessoriesInput): List.Item.Accessory[] => {
-  if (error) {
-    return [{ text: "Error", icon: getUsageLimitsErrorIcon() }];
-  }
-
-  if (!hasData) {
-    return STANDARD_ACCESSORIES.LOADING;
-  }
-
-  if (isStale) {
-    return [{ icon: Icon.Warning, tooltip: `Stale data (last updated ${formatRelativeTime(lastFetched)})` }];
-  }
-
-  return [
-    {
-      icon: Icon.Gauge,
-      text: `${fiveHourUtilization.toFixed(0)}%`,
-      tooltip: "5-Hour Limit (higher priority)",
-    },
-  ];
-};
-
-const getUsageLimitsErrorMarkdown = (error: UsageLimitsError): string => {
-  return [
-    `# ${error.title}`,
-    "",
-    error.message,
-    "",
-    "## Error Log",
-    "",
-    "```text",
-    sanitizeCodeBlock(error.log),
-    "```",
-  ].join("\n");
-};
+const rowTitle = (label: string, period: string | null): string =>
+  period ? `${label} ${capitalize(period)} Limit` : `${label} Usage Limit`;
 
 export function UsageLimits() {
-  const { data, isLoading, error, isStale, lastFetched, revalidate, isUsageLimitsAvailable } = useClaudeUsageLimits();
+  const {
+    data,
+    isLoading,
+    error,
+    isStale,
+    isRateLimited,
+    rateLimitedUntil,
+    lastFetched,
+    revalidate,
+    isUsageLimitsAvailable,
+  } = useClaudeUsageLimits();
+
+  const rateLimitRetryIn =
+    rateLimitedUntil && rateLimitedUntil > Date.now() ? formatDuration(rateLimitedUntil - Date.now()) : null;
 
   if (!isUsageLimitsAvailable) {
     return null;
   }
 
   const fiveHourUtil = data?.five_hour?.utilization ?? 0;
-  const sevenDayUtil = data?.seven_day?.utilization ?? 0;
+  const preferRemaining = showRemainingUsage();
 
-  const accessories = getUsageLimitsAccessories({
-    hasData: Boolean(data),
-    error,
-    isStale,
-    lastFetched,
-    fiveHourUtilization: fiveHourUtil,
-  });
+  const accessories: List.Item.Accessory[] =
+    error && !data
+      ? STANDARD_ACCESSORIES.ERROR
+      : isRateLimited && !data
+        ? [
+            {
+              icon: Icon.Clock,
+              text: rateLimitRetryIn ? `Rate limited · retry in ${rateLimitRetryIn}` : "Rate limited",
+            },
+          ]
+        : !data
+          ? STANDARD_ACCESSORIES.LOADING
+          : isStale && !isLoading
+            ? [{ icon: Icon.Warning, tooltip: `Stale data (last updated ${formatRelativeTime(lastFetched)})` }]
+            : [
+                {
+                  icon: Icon.Gauge,
+                  text: `${(preferRemaining ? 100 - fiveHourUtil : fiveHourUtil).toFixed(0)}%`,
+                  tooltip: `5-Hour Limit · ${preferRemaining ? "Remaining" : "Consumed"} (higher priority)`,
+                },
+              ];
 
   const renderDetailMetadata = (): ReactNode => {
-    if (error) {
-      return null;
-    }
-
-    if (!data) {
+    if (error && !data) {
       return (
         <ErrorMetadata
-          error={undefined}
-          noDataMessage="Loading usage limits..."
-          noDataSubMessage="Fetching data from Claude API"
+          noDataMessage="Unable to fetch usage limits"
+          noDataSubMessage="Re-authenticate by running: claude login"
         />
       );
     }
 
-    const fiveHourColor = getUtilizationColor(fiveHourUtil);
-    const sevenDayColor = getUtilizationColor(sevenDayUtil);
+    if (isRateLimited && !data) {
+      return (
+        <ErrorMetadata
+          noDataMessage={
+            rateLimitRetryIn ? `Rate limited — retry in ${rateLimitRetryIn}` : "Rate limited by Anthropic API"
+          }
+          noDataSubMessage="Click Refresh to try now"
+        />
+      );
+    }
 
-    const fiveHourAverage = calculateAverageUsage(data.five_hour.resets_at, 5);
-    const sevenDayAverage = calculateAverageUsage(data.seven_day.resets_at, 7 * 24);
-
-    const fiveHourEstimate = calculateEstimatedUsage(fiveHourUtil, data.five_hour.resets_at, 5);
-    const sevenDayEstimate = calculateEstimatedUsage(sevenDayUtil, data.seven_day.resets_at, 7 * 24);
-
-    const fiveHourEstimateColor =
-      fiveHourEstimate !== null ? getUtilizationColor(fiveHourEstimate) : Color.SecondaryText;
-    const sevenDayEstimateColor =
-      sevenDayEstimate !== null ? getUtilizationColor(sevenDayEstimate) : Color.SecondaryText;
+    if (!data) {
+      return <ErrorMetadata noDataMessage="Loading usage limits..." noDataSubMessage="Fetching data from Claude API" />;
+    }
 
     return (
       <List.Item.Detail.Metadata>
@@ -127,68 +102,52 @@ export function UsageLimits() {
           </>
         )}
 
-        <List.Item.Detail.Metadata.Label title="5-Hour Usage Limit" icon={Icon.Clock} />
-        <List.Item.Detail.Metadata.Label
-          title="Utilization"
-          text={`${fiveHourUtil.toFixed(1)}%`}
-          icon={{ source: Icon.BarChart, tintColor: fiveHourColor }}
-        />
-        {fiveHourAverage !== null && (
-          <List.Item.Detail.Metadata.Label
-            title="Average Usage"
-            text={`${fiveHourAverage.toFixed(1)}%`}
-            icon={{ source: Icon.Circle, tintColor: Color.SecondaryText }}
-          />
-        )}
-        {fiveHourEstimate !== null && (
-          <List.Item.Detail.Metadata.Label
-            title="Estimated Usage"
-            text={`${fiveHourEstimate.toFixed(1)}%`}
-            icon={{ source: Icon.LineChart, tintColor: fiveHourEstimateColor }}
-          />
-        )}
-        <List.Item.Detail.Metadata.Label
-          title="Resets in"
-          text={
-            data.five_hour.resets_at
-              ? `${formatTimeRemaining(data.five_hour.resets_at)} || ${new Date(data.five_hour.resets_at).toLocaleString()}`
-              : "N/A"
-          }
-          icon={Icon.ArrowClockwise}
-        />
-        <List.Item.Detail.Metadata.Separator />
+        {getLimitRows(data).map((row, index) => {
+          const average = row.windowHours === null ? null : calculateAverageUsage(row.resets_at, row.windowHours);
+          const estimate =
+            row.windowHours === null ? null : calculateEstimatedUsage(row.utilization, row.resets_at, row.windowHours);
 
-        <List.Item.Detail.Metadata.Label title="7-Day Usage Limit" icon={Icon.Calendar} />
-        <List.Item.Detail.Metadata.Label
-          title="Utilization"
-          text={`${sevenDayUtil.toFixed(1)}%`}
-          icon={{ source: Icon.BarChart, tintColor: sevenDayColor }}
-        />
-        {sevenDayAverage !== null && (
-          <List.Item.Detail.Metadata.Label
-            title="Average Usage"
-            text={`${sevenDayAverage.toFixed(1)}%`}
-            icon={{ source: Icon.Circle, tintColor: Color.SecondaryText }}
-          />
-        )}
-        {sevenDayEstimate !== null && (
-          <List.Item.Detail.Metadata.Label
-            title="Estimated Usage"
-            text={`${sevenDayEstimate.toFixed(1)}%`}
-            icon={{ source: Icon.LineChart, tintColor: sevenDayEstimateColor }}
-          />
-        )}
-        <List.Item.Detail.Metadata.Label
-          title="Resets in"
-          text={
-            data.seven_day.resets_at
-              ? `${formatTimeRemaining(data.seven_day.resets_at)} || ${new Date(data.seven_day.resets_at).toLocaleString()}`
-              : "N/A"
-          }
-          icon={Icon.ArrowClockwise}
-        />
+          return (
+            <React.Fragment key={row.key}>
+              {index > 0 && <List.Item.Detail.Metadata.Separator />}
+              <List.Item.Detail.Metadata.Label
+                title={rowTitle(row.label, row.period)}
+                icon={row.windowHours !== null && row.windowHours <= 24 ? Icon.Clock : Icon.Calendar}
+              />
+              <List.Item.Detail.Metadata.Label
+                title="Utilization"
+                text={`${row.utilization.toFixed(row.decimals)}%`}
+                icon={{ source: Icon.BarChart, tintColor: getUtilizationColor(row.utilization) }}
+              />
+              <List.Item.Detail.Metadata.Label title="Progress" text={createProgressBar(row.utilization)} />
+              {average !== null && (
+                <List.Item.Detail.Metadata.Label
+                  title="Average Usage"
+                  text={`${average.toFixed(1)}%`}
+                  icon={{ source: Icon.Circle, tintColor: Color.SecondaryText }}
+                />
+              )}
+              {estimate !== null && (
+                <List.Item.Detail.Metadata.Label
+                  title="Estimated Usage"
+                  text={`${estimate.toFixed(1)}%`}
+                  icon={{ source: Icon.LineChart, tintColor: getUtilizationColor(estimate) }}
+                />
+              )}
+              <List.Item.Detail.Metadata.Label
+                title="Resets in"
+                text={
+                  row.resets_at
+                    ? `${formatTimeRemaining(row.resets_at)} · ${new Date(row.resets_at).toLocaleString("en-US", { hour12: false })}`
+                    : "N/A"
+                }
+                icon={Icon.ArrowClockwise}
+              />
+            </React.Fragment>
+          );
+        })}
 
-        {isStale && (
+        {isStale && !isLoading && (
           <>
             <List.Item.Detail.Metadata.Separator />
             <List.Item.Detail.Metadata.Label
@@ -207,19 +166,12 @@ export function UsageLimits() {
     <List.Item
       id="usage-limits"
       title="Usage Limits"
-      icon={Icon.Gauge}
+      icon={{ source: Icon.Gauge, tintColor: Color.SecondaryText }}
       accessories={accessories}
-      detail={
-        error ? (
-          <List.Item.Detail markdown={getUsageLimitsErrorMarkdown(error)} />
-        ) : (
-          <List.Item.Detail isLoading={isLoading} metadata={renderDetailMetadata()} />
-        )
-      }
+      detail={<List.Item.Detail isLoading={isLoading} metadata={renderDetailMetadata()} />}
       actions={
         <ActionPanel>
           <Action title="Refresh Usage Limit" icon={Icon.ArrowClockwise} onAction={revalidate} />
-          {error && <Action.CopyToClipboard title="Copy Error Log" content={error.log} icon={Icon.Clipboard} />}
         </ActionPanel>
       }
     />

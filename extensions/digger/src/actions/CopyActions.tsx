@@ -23,13 +23,19 @@ export function CopyActions({ data, url }: CopyActionsProps) {
         title="Copy as JSON"
         content={jsonContent}
         icon={Icon.Code}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "j" }}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "j" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "j" },
+        }}
       />
       <Action.CopyToClipboard
         title="Copy as Markdown"
         content={markdownContent}
         icon={Icon.Document}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
+        shortcut={{
+          macOS: { modifiers: ["cmd", "shift"], key: "m" },
+          Windows: { modifiers: ["ctrl", "shift"], key: "m" },
+        }}
       />
     </>
   );
@@ -51,7 +57,10 @@ export function CopyIndividualActions({ title, description, ogImage, favicon, ca
           title="Copy Title"
           content={title}
           icon={Icon.Text}
-          shortcut={{ modifiers: ["cmd", "opt"], key: "t" }}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "opt"], key: "t" },
+            Windows: { modifiers: ["ctrl", "alt"], key: "t" },
+          }}
         />
       )}
       {description && (
@@ -59,7 +68,10 @@ export function CopyIndividualActions({ title, description, ogImage, favicon, ca
           title="Copy Description"
           content={description}
           icon={Icon.Text}
-          shortcut={{ modifiers: ["cmd", "opt"], key: "d" }}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "opt"], key: "d" },
+            Windows: { modifiers: ["ctrl", "alt"], key: "d" },
+          }}
         />
       )}
       {ogImage && (
@@ -67,7 +79,10 @@ export function CopyIndividualActions({ title, description, ogImage, favicon, ca
           title="Copy OG Image URL"
           content={ogImage}
           icon={Icon.Image}
-          shortcut={{ modifiers: ["cmd", "opt"], key: "i" }}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "opt"], key: "i" },
+            Windows: { modifiers: ["ctrl", "alt"], key: "i" },
+          }}
         />
       )}
       {favicon && (
@@ -75,7 +90,10 @@ export function CopyIndividualActions({ title, description, ogImage, favicon, ca
           title="Copy Favicon URL"
           content={favicon}
           icon={Icon.Image}
-          shortcut={{ modifiers: ["cmd", "opt"], key: "f" }}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "opt"], key: "f" },
+            Windows: { modifiers: ["ctrl", "alt"], key: "f" },
+          }}
         />
       )}
       {canonical && (
@@ -83,7 +101,10 @@ export function CopyIndividualActions({ title, description, ogImage, favicon, ca
           title="Copy Canonical URL"
           content={canonical}
           icon={Icon.Link}
-          shortcut={{ modifiers: ["cmd", "opt"], key: "c" }}
+          shortcut={{
+            macOS: { modifiers: ["cmd", "opt"], key: "u" },
+            Windows: { modifiers: ["ctrl", "alt"], key: "u" },
+          }}
         />
       )}
     </>
@@ -165,14 +186,22 @@ function generateMarkdownReport(data: DiggerResult): string {
     if (discoverability.robots) {
       markdown += `- **Robots**: ${discoverability.robots}\n`;
     }
+    // Same distinction as the UI: "Not found" is only claimed when the server
+    // answered. A 5xx or a timeout reports as unchecked, not absent.
+    const resourceText = (status?: string) =>
+      status === "found" ? "Found" : status === "unavailable" ? "Couldn't check" : "Not found";
     if (discoverability.sitemap) {
       markdown += `- **Sitemap**: ${discoverability.sitemap}\n`;
+    } else if (discoverability.sitemapStatus !== undefined) {
+      // Printing the URL only on success meant a timed-out sitemap vanished from
+      // the report entirely — the reader could not tell it had been checked.
+      markdown += `- **Sitemap**: ${resourceText(discoverability.sitemapStatus)}\n`;
     }
     if (discoverability.robotsTxt !== undefined) {
-      markdown += `- **robots.txt**: ${discoverability.robotsTxt ? "Found" : "Not found"}\n`;
+      markdown += `- **robots.txt**: ${resourceText(discoverability.robotsTxt)}\n`;
     }
     if (discoverability.llmsTxt !== undefined) {
-      markdown += `- **llms.txt**: ${discoverability.llmsTxt ? "Found" : "Not found"}\n`;
+      markdown += `- **llms.txt**: ${resourceText(discoverability.llmsTxt)}\n`;
     }
     if (discoverability.contentSignals) {
       const cs = discoverability.contentSignals;
@@ -226,14 +255,8 @@ function generateMarkdownReport(data: DiggerResult): string {
     if (performance.loadTime) {
       markdown += `- **Load Time**: ${Math.round(performance.loadTime)}ms\n`;
     }
-    if (performance.ttfb) {
-      markdown += `- **TTFB**: ${Math.round(performance.ttfb)}ms\n`;
-    }
     if (performance.pageSize) {
       markdown += `- **Page Size**: ${formatBytes(performance.pageSize)}\n`;
-    }
-    if (performance.requestCount) {
-      markdown += `- **Requests**: ${performance.requestCount}\n`;
     }
     markdown += `\n`;
   }

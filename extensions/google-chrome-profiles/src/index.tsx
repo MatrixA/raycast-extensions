@@ -1,12 +1,13 @@
 import {
   Action,
   ActionPanel,
+  Alert,
   Clipboard,
+  confirmAlert,
   environment,
   getPreferenceValues,
   Icon,
   Image,
-  LaunchProps,
   List,
   showHUD,
   showToast,
@@ -32,12 +33,19 @@ import {
   isValidUrl,
   formatAsUrl,
   openGoogleChrome,
+  readChromeLocalState,
+  deleteChromeProfile,
   ChromeAction,
   ChromeTarget,
 } from "./util/util";
 import { getFavicon } from "@raycast/utils";
 
-const ProfileItem = (props: { index: number; profile: Profile; browser: BrowserConfig }) => {
+const ProfileItem = (props: {
+  index: number;
+  profile: Profile;
+  browser: BrowserConfig;
+  onDelete: (profile: Profile) => Promise<void>;
+}) => {
   const { index, profile, browser } = props;
 
   return (
@@ -69,6 +77,28 @@ const ProfileItem = (props: { index: number; profile: Profile; browser: BrowserC
               );
             }}
           />
+          <Action
+            title="New Window"
+            icon={Icon.AppWindow}
+            shortcut={{ modifiers: ["cmd", "shift"], key: "return" }}
+            onAction={async () => {
+              await openGoogleChrome(
+                profile,
+                ChromeAction.NewWindow,
+                async () => {
+                  await showHUD("Opening new window...");
+                },
+                browser,
+              );
+            }}
+          />
+          <Action
+            title="Delete Profile"
+            icon={Icon.Trash}
+            style={Action.Style.Destructive}
+            shortcut={{ modifiers: ["cmd", "shift"], key: "backspace" }}
+            onAction={() => props.onDelete(profile)}
+          />
         </ActionPanel>
       }
     />
@@ -85,10 +115,7 @@ export default function Command() {
       try {
         // for google-chrome-profiles-1.png:
         // 1. comment the code below:
-        const path = join(homedir(), browser.dataPath, "Local State");
-        const localStateFileBuffer = await readFile(path);
-        const localStateFileText = localStateFileBuffer.toString("utf-8");
-        setLocalState(JSON.parse(localStateFileText));
+        setLocalState((await readChromeLocalState(browser)).state);
         // 2. uncomment function _createDataSetForScreenshot1() at the bottom of the file
         // 3. uncomment code below:
         // setLocalState(_createDataSetForScreenshot1());
@@ -107,13 +134,42 @@ export default function Command() {
   const infoCache = localState?.profile.info_cache;
   const profiles = infoCache && Object.keys(infoCache).map(extractProfileFromInfoCache(infoCache));
 
+  const deleteProfile = async (profile: Profile) => {
+    if (
+      !(await confirmAlert({
+        title: `Delete “${profile.name}” profile?`,
+        message: "This permanently deletes its bookmarks, history, passwords, and other local data.",
+        primaryAction: { title: "Delete Profile", style: Alert.ActionStyle.Destructive },
+      }))
+    ) {
+      return;
+    }
+
+    try {
+      setLocalState(await deleteChromeProfile(profile, browser));
+      await showToast(Toast.Style.Success, `Deleted ${profile.name}`);
+    } catch (error) {
+      await showToast(
+        Toast.Style.Failure,
+        "Could not delete profile",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
   return (
     <List isLoading={!profiles && !error} searchBarPlaceholder="Search Profile">
       {profiles &&
         profiles
           .sort(sortAlphabetically)
           .map((profile, index) => (
-            <ProfileItem key={profile.directory} index={index} profile={profile} browser={browser} />
+            <ProfileItem
+              key={profile.directory}
+              index={index}
+              profile={profile}
+              browser={browser}
+              onDelete={deleteProfile}
+            />
           ))}
     </List>
   );
@@ -131,6 +187,7 @@ const extractProfileFromInfoCache =
     return {
       directory: infoCacheKey,
       name: profile.name,
+      givenName: profile.gaia_given_name,
       ...(profile.gaia_name &&
         profile.user_name &&
         profile.last_downloaded_gaia_picture_url_with_size && {
@@ -281,6 +338,13 @@ function ListBookmarks(props: { profile: Profile; browser: BrowserConfig }) {
               actions={<ActionPanelForTarget profile={props.profile} target={tab.target} browser={props.browser} />}
             />
           ))}
+          <List.Item
+            title="New Window"
+            icon={Icon.Duplicate}
+            actions={
+              <ActionPanelForTarget profile={props.profile} target={ChromeAction.NewWindow} browser={props.browser} />
+            }
+          />
           {clipboardItem && (
             <List.Item
               title={clipboardItem.title}
@@ -313,7 +377,11 @@ function ListBookmarks(props: { profile: Profile; browser: BrowserConfig }) {
               key={index}
               title={b.title}
               subtitle={b.subtitle}
-              icon={getFavicon(b.iconURL, { fallback: Icon.Globe, mask: Image.Mask.Circle })}
+              icon={
+                b.iconURL
+                  ? getFavicon(b.iconURL, { fallback: Icon.Globe, mask: Image.Mask.Circle })
+                  : { source: Icon.Globe, mask: Image.Mask.Circle }
+              }
               actions={
                 <ActionPanelForTarget
                   profile={props.profile}
@@ -335,27 +403,45 @@ function newTabUrlWithQuery(searchText: string) {
 
 function ActionPanelForTarget(props: { profile: Profile; target: ChromeTarget; browser: BrowserConfig }) {
   const context = encodeURIComponent(
-    JSON.stringify({ directory: props.profile.directory, name: props.profile.name, ...props.target }),
+    JSON.stringify({
+      directory: props.profile.directory,
+      name: props.profile.name,
+      // Carried across the deeplink so a Quicklink for a signed-in profile
+      // can match Chrome's Profiles menu without a Local State fallback
+      // read — see `openGoogleChrome`. (JSON.stringify drops it when
+      // undefined, so a local profile's deeplink stays unchanged.)
+      givenName: props.profile.givenName,
+      ...props.target,
+    }),
   );
-  const deeplink = `raycast://extensions/frouo/${environment.extensionName}/open-profile?context=${context}`;
+  const deeplink = `${process.env.RAYCAST_SCHEME ?? "raycast"}://extensions/frouo/${
+    environment.extensionName
+  }/open-profile?context=${context}`;
 
-  const action = props.target.action;
-  const hudMessage =
-    action === "focus" ? "Bringing to front..." : action === "newTab" ? "Opening new tab..." : "Opening...";
+  const targetUrl = props.target.action === "openUrl" ? props.target.url : "";
 
-  const quicklinkTitle =
-    action === "focus"
-      ? "Create Quicklink (Bring to Front)"
-      : action === "newTab"
-      ? "Create Quicklink (New Tab)"
-      : "Create Quicklink (Open the URL)";
-
-  const quicklinkName =
-    action === "focus"
-      ? `${props.profile.name} > Bring to Front`
-      : action === "newTab"
-      ? `${props.profile.name} > New Tab`
-      : `${props.profile.name} > Open ${props.target.url}`;
+  const { hudMessage, quicklinkTitle, quicklinkName } = {
+    focus: {
+      hudMessage: "Bringing to front...",
+      quicklinkTitle: "Create Quicklink (Bring to Front)",
+      quicklinkName: `${props.profile.name} > Bring to Front`,
+    },
+    newTab: {
+      hudMessage: "Opening new tab...",
+      quicklinkTitle: "Create Quicklink (New Tab)",
+      quicklinkName: `${props.profile.name} > New Tab`,
+    },
+    newWindow: {
+      hudMessage: "Opening new window...",
+      quicklinkTitle: "Create Quicklink (New Window)",
+      quicklinkName: `${props.profile.name} > New Window`,
+    },
+    openUrl: {
+      hudMessage: "Opening...",
+      quicklinkTitle: "Create Quicklink (Open the URL)",
+      quicklinkName: `${props.profile.name} > Open ${targetUrl}`,
+    },
+  }[props.target.action];
 
   return (
     <ActionPanel>

@@ -34,12 +34,13 @@ export function ModelView(): React.JSX.Element {
   const { data: ServersSettings, revalidate: RevalidateServersSettings } = usePromise(GetOllamaServers);
   const {
     data: Models,
+    error: ModelsError,
     isLoading: IsLoadingModels,
     revalidate: RevalidateModels,
   } = usePromise(GetModels, [SelectedServer], { abortable: abort });
   const [Download, setDownload]: [
     Types.UiModelDownload[],
-    React.Dispatch<React.SetStateAction<Types.UiModelDownload[]>>
+    React.Dispatch<React.SetStateAction<Types.UiModelDownload[]>>,
   ] = React.useState([] as Types.UiModelDownload[]);
   const [showDetail, setShowDetail]: [boolean, React.Dispatch<React.SetStateAction<boolean>>] = React.useState(false);
 
@@ -98,10 +99,12 @@ export function ModelView(): React.JSX.Element {
             />
             {prop.model.ps && (
               <React.Fragment>
-                <List.Item.Detail.Metadata.Label
-                  title="Context Length"
-                  text={`${prop.model.ps.context_length.toLocaleString(locale)}`}
-                />
+                {typeof prop.model.ps.context_length === "number" && (
+                  <List.Item.Detail.Metadata.Label
+                    title="Context Length"
+                    text={prop.model.ps.context_length.toLocaleString(locale)}
+                  />
+                )}
                 <List.Item.Detail.Metadata.Label
                   title="Memory freed at"
                   text={new Date(prop.model.ps.expires_at).toLocaleString(locale)}
@@ -159,7 +162,7 @@ export function ModelView(): React.JSX.Element {
           )}
           {prop.model.ps && (
             <Action
-              title="Unload Model From Memory"
+              title="Unload Model from Memory"
               icon={Icon.Eject}
               onAction={() => UnloadModel(prop.model, RevalidateModels)}
               shortcut={Shortcut.LoadUnloadModel}
@@ -226,11 +229,17 @@ export function ModelView(): React.JSX.Element {
       /* Skip other accessories if details are showed */
       if (showDetail) return accessories;
       accessories.push({
-        tag: { color: Color.PrimaryText, value: `${(Model.ps.size_vram / 1e9).toPrecision(2).toString()} GB` },
+        tag: {
+          color: Color.PrimaryText,
+          value: `${(Model.ps.size_vram / 1e9).toPrecision(2).toString()} GB`,
+        },
         icon: Icon.MemoryChip,
       });
       accessories.push({
-        tag: { color: Color.PrimaryText, value: FormatOllamaPsModelExpireAtFormat(Model.ps.expires_at) },
+        tag: {
+          color: Color.PrimaryText,
+          value: FormatOllamaPsModelExpireAtFormat(Model.ps.expires_at),
+        },
         icon: Icon.Hourglass,
       });
     }
@@ -315,13 +324,25 @@ export function ModelView(): React.JSX.Element {
         </ActionPanel>
       }
     >
+      {ModelsError && (
+        <List.EmptyView
+          icon={Icon.ExclamationMark}
+          title="Unable to Load Models"
+          description={ModelsError.message}
+          actions={
+            <ActionPanel>
+              <Action title="Retry" icon={Icon.ArrowClockwise} onAction={RevalidateModels} />
+            </ActionPanel>
+          }
+        />
+      )}
       {Models &&
         Models.length > 0 &&
         Models.map((item) => {
           return (
             <List.Item
               title={item.detail.name}
-              icon={Icon.Box}
+              icon={item.detail.name.endsWith(":cloud") ? Icon.Cloud : Icon.Box}
               key={`${item.server.name}_${item.detail.name}`}
               id={`${item.server.name}_${item.detail.name}`}
               actions={<ModelAction model={item} />}
@@ -342,13 +363,15 @@ export function ModelView(): React.JSX.Element {
             />
           );
       })}
-      {(Models === undefined || Models.length === 0) && (Download === undefined || Download.length === 0) && (
-        <List.EmptyView
-          icon={Icon.Download}
-          title="No Models Installed."
-          description="No model is currently installed on this server. You can download a new model using the ⌘+N (macOS) or ctrl+N (Windows) shortcut."
-        />
-      )}
+      {!ModelsError &&
+        (Models === undefined || Models.length === 0) &&
+        (Download === undefined || Download.length === 0) && (
+          <List.EmptyView
+            icon={Icon.Download}
+            title="No Models Installed."
+            description="No model is currently installed on this server. You can download a new model using the ⌘+N (macOS) or ctrl+N (Windows) shortcut."
+          />
+        )}
     </List>
   );
 }

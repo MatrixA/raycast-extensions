@@ -12,6 +12,7 @@ import { Cask, Formula, InstallableResults, DownloadProgress, IndexEntry } from 
 import { searchLogger } from "../logger";
 import { fetchFormulaIndex, fetchCaskIndex, fetchFormulaItems, fetchCaskItems } from "./fetch";
 import { brewCompare } from "./helpers";
+import { PopularityRanks, byPopularity } from "./analytics";
 
 /** Progress callback for search download phases */
 export interface SearchDownloadProgress {
@@ -33,6 +34,9 @@ export type SearchProgressCallback = (progress: SearchDownloadProgress) => void;
  * @param limit - Maximum number of results per category
  * @param signal - AbortSignal for cancellation
  * @param onProgress - Optional callback for progress updates
+ * @param ranks - When given, results are ordered by install count instead of
+ *   name relevance. Ranking happens on the full match set, *before* the limit
+ *   is applied, so the top results are the most installed matches overall.
  * @returns Matching formulae and casks
  */
 export async function brewSearch(
@@ -40,14 +44,19 @@ export async function brewSearch(
   limit?: number,
   signal?: AbortSignal,
   onProgress?: SearchProgressCallback,
+  ranks?: PopularityRanks,
 ): Promise<InstallableResults> {
-  searchLogger.log("Searching", { query: searchText, limit });
+  searchLogger.log("Searching", { query: searchText, limit, sortByPopularity: ranks != undefined });
 
   // Track progress for both downloads
   let casksProgress: DownloadProgress | undefined;
   let formulaeProgress: DownloadProgress | undefined;
 
   // Phase 1: Load indexes concurrently (small, ~600KB each)
+  // IMPORTANT: Do NOT pass the abort signal to index fetching.
+  // The index download is a shared resource that must complete regardless of
+  // search query changes. useCachedPromise aborts on every keystroke, which
+  // would repeatedly restart the (slow) initial index download.
   onProgress?.({ phase: "casks" });
 
   const [caskIndex, formulaIndex] = await Promise.all([
@@ -58,7 +67,7 @@ export async function brewSearch(
         casksProgress: progress,
         formulaeProgress,
       });
-    }, signal),
+    }),
     fetchFormulaIndex((progress) => {
       formulaeProgress = progress;
       onProgress?.({
@@ -66,9 +75,10 @@ export async function brewSearch(
         casksProgress,
         formulaeProgress: progress,
       });
-    }, signal),
+    }),
   ]);
 
+  // Check for abort after index load (search query may have changed)
   if (signal?.aborted) {
     const error = new Error("Aborted");
     error.name = "AbortError";
@@ -83,24 +93,34 @@ export async function brewSearch(
     const target = searchText.toLowerCase();
 
     // Filter formulae index by name, description, or aliases
-    matchingFormulaEntries = formulaIndex.entries
-      .filter((entry) => {
-        return (
-          entry.n.includes(target) || entry.d?.includes(target) || entry.a?.some((alias) => alias.includes(target))
-        );
-      })
-      .sort((a, b) => brewCompare(a.id, b.id, target));
+    matchingFormulaEntries = formulaIndex.entries.filter((entry) => {
+      return entry.n.includes(target) || entry.d?.includes(target) || entry.a?.some((alias) => alias.includes(target));
+    });
 
     // Filter casks index by token or description
-    matchingCaskEntries = caskIndex.entries
-      .filter((entry) => {
-        return entry.n.includes(target) || entry.d?.includes(target);
-      })
-      .sort((a, b) => brewCompare(a.id, b.id, target));
+    matchingCaskEntries = caskIndex.entries.filter((entry) => {
+      return entry.n.includes(target) || entry.d?.includes(target);
+    });
+
+    if (ranks) {
+      matchingFormulaEntries.sort(byPopularity(ranks.formulae));
+      matchingCaskEntries.sort(byPopularity(ranks.casks));
+    } else {
+      matchingFormulaEntries.sort((a, b) => brewCompare(a.id, b.id, target));
+      matchingCaskEntries.sort((a, b) => brewCompare(a.id, b.id, target));
+    }
   } else {
-    // No search text - return all entries (sorted alphabetically)
-    matchingFormulaEntries = [...formulaIndex.entries].sort((a, b) => a.id.localeCompare(b.id));
-    matchingCaskEntries = [...caskIndex.entries].sort((a, b) => a.id.localeCompare(b.id));
+    // No search text - every entry, ordered by popularity or alphabetically
+    matchingFormulaEntries = [...formulaIndex.entries];
+    matchingCaskEntries = [...caskIndex.entries];
+
+    if (ranks) {
+      matchingFormulaEntries.sort(byPopularity(ranks.formulae));
+      matchingCaskEntries.sort(byPopularity(ranks.casks));
+    } else {
+      matchingFormulaEntries.sort((a, b) => a.id.localeCompare(b.id));
+      matchingCaskEntries.sort((a, b) => a.id.localeCompare(b.id));
+    }
   }
 
   // Track total counts before slicing
@@ -122,6 +142,16 @@ export async function brewSearch(
     const error = new Error("Aborted");
     error.name = "AbortError";
     throw error;
+  }
+
+  // Stamp install counts onto the results so the UI can show why this order.
+  if (ranks) {
+    for (const formula of formulae) {
+      formula.installs = ranks.formulae.get(formula.name);
+    }
+    for (const cask of casks) {
+      cask.installs = ranks.casks.get(cask.token);
+    }
   }
 
   // Set totalLength for UI (shows "X of Y results")

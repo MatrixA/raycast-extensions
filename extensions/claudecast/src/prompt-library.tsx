@@ -24,13 +24,19 @@ import {
   incrementUsageCount,
   deleteCustomPrompt,
 } from "./lib/prompts";
+import { shortcut } from "./lib/shortcuts";
 import {
   executePrompt,
   ClaudeResponse,
+  ensureClaudeApiAuth,
   ensureClaudeInstalled,
 } from "./lib/claude-cli";
 import { captureContext, getCodeContext } from "./lib/context-capture";
-import { launchClaudeCode, launchRalphFreshLoop } from "./lib/terminal";
+import {
+  launchClaudeCode,
+  launchRalphFreshLoop,
+  expandTilde,
+} from "./lib/terminal";
 
 const CATEGORIES: PromptCategory[] = [
   "planning",
@@ -208,7 +214,8 @@ function PromptItem({
   async function runInTerminal(variables: Record<string, string> = {}) {
     if (!(await ensureClaudeInstalled())) return;
     const context = await captureContext();
-    const targetPath = variables.projectPath || context.projectPath;
+    const targetPath =
+      expandTilde(variables.projectPath || "") || context.projectPath;
     if (targetPath && !existsSync(targetPath)) {
       await showToast({
         style: Toast.Style.Failure,
@@ -256,7 +263,7 @@ function PromptItem({
                 <Action.Push
                   title="Quick Execute in Raycast"
                   icon={Icon.Play}
-                  shortcut={{ modifiers: ["cmd"], key: "e" }}
+                  shortcut={shortcut.edit}
                   target={
                     <PromptVariablesForm prompt={prompt} mode="raycast" />
                   }
@@ -265,7 +272,7 @@ function PromptItem({
                 <Action
                   title="Quick Execute in Raycast"
                   icon={Icon.Play}
-                  shortcut={{ modifiers: ["cmd"], key: "e" }}
+                  shortcut={shortcut.edit}
                   onAction={async () => {
                     push(
                       <ExecutingPromptView prompt={prompt} variables={{}} />,
@@ -276,7 +283,7 @@ function PromptItem({
             <Action.Push
               title="View Prompt"
               icon={Icon.Eye}
-              shortcut={{ modifiers: ["cmd"], key: "d" }}
+              shortcut={shortcut.primary("d")}
               target={<PromptDetailView prompt={prompt} />}
             />
           </ActionPanel.Section>
@@ -285,14 +292,14 @@ function PromptItem({
             <Action.CopyToClipboard
               title="Copy Prompt"
               content={prompt.prompt}
-              shortcut={{ modifiers: ["cmd"], key: "c" }}
+              shortcut={shortcut.copy}
             />
             {!prompt.isBuiltIn && (
               <Action
                 title="Delete Prompt"
                 icon={Icon.Trash}
                 style={Action.Style.Destructive}
-                shortcut={{ modifiers: ["ctrl"], key: "x" }}
+                shortcut={shortcut.remove}
                 onAction={async () => {
                   await deleteCustomPrompt(prompt.id);
                   onRefresh();
@@ -439,7 +446,7 @@ function PromptVariablesForm({
 
     // Special handling for ralph-loop - create project directory if needed
     if (isRalphLoop) {
-      const projectPath = processedValues.projectPath;
+      const projectPath = expandTilde(processedValues.projectPath || "");
       if (projectPath && !existsSync(projectPath)) {
         try {
           mkdirSync(projectPath, { recursive: true });
@@ -463,7 +470,8 @@ function PromptVariablesForm({
       const context = await captureContext();
       await incrementUsageCount(prompt.id);
       // Use user-specified projectPath if provided, otherwise fall back to context
-      const targetPath = processedValues.projectPath || context.projectPath;
+      const targetPath =
+        expandTilde(processedValues.projectPath || "") || context.projectPath;
 
       // Special handling for Ralph Loop - use fresh context launcher
       if (isRalphLoop) {
@@ -471,6 +479,19 @@ function PromptVariablesForm({
           await showToast({
             style: Toast.Style.Failure,
             title: "Project path required for Ralph Loop",
+          });
+          return;
+        }
+        const maxIterations = Number(processedValues.maxIterations || "20");
+        if (
+          !Number.isInteger(maxIterations) ||
+          maxIterations < 1 ||
+          maxIterations > 100
+        ) {
+          await showToast({
+            style: Toast.Style.Failure,
+            title: "Invalid Maximum Iterations",
+            message: "Enter a whole number from 1 to 100",
           });
           return;
         }
@@ -487,7 +508,7 @@ function PromptVariablesForm({
             projectPath: targetPath,
             task: processedValues.task || "",
             requirements: processedValues.requirements || "",
-            maxIterations: parseInt(processedValues.maxIterations || "20", 10),
+            maxIterations,
           });
           loadingToast.style = Toast.Style.Success;
           loadingToast.title = "Ralph Loop launched";
@@ -702,9 +723,13 @@ function ExecutingPromptView({
 
     async function execute() {
       try {
-        // Check if Claude is installed first
         if (!(await ensureClaudeInstalled())) {
           setError("Claude Code not installed");
+          setIsLoading(false);
+          return;
+        }
+        if (!(await ensureClaudeApiAuth())) {
+          setError("Claude authentication missing");
           setIsLoading(false);
           return;
         }
@@ -790,12 +815,12 @@ function ExecutingPromptView({
             <Action.CopyToClipboard
               title="Copy Response"
               content={result?.result || ""}
-              shortcut={{ modifiers: ["cmd"], key: "c" }}
+              shortcut={shortcut.copy}
             />
             <Action.Paste
               title="Paste Response"
               content={result?.result || ""}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "v" }}
+              shortcut={shortcut.primaryShift("v")}
             />
           </ActionPanel.Section>
 
@@ -803,7 +828,7 @@ function ExecutingPromptView({
             <Action
               title="Continue in Terminal"
               icon={Icon.Terminal}
-              shortcut={{ modifiers: ["cmd"], key: "t" }}
+              shortcut={shortcut.primary("t")}
               onAction={async () => {
                 await launchClaudeCode({
                   projectPath,

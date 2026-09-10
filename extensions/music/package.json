@@ -16,7 +16,8 @@
     "hrishabhn",
     "bogdan_bucur",
     "xmok",
-    "byheaven"
+    "byheaven",
+    "christianmagill"
   ],
   "license": "MIT",
   "keywords": [
@@ -131,7 +132,7 @@
       "description": "Get info about currently playing track.",
       "disabledByDefault": true,
       "mode": "no-view",
-      "interval": "30s"
+      "interval": "1m"
     },
     {
       "name": "remove-current-playing-from-current-playlist",
@@ -329,6 +330,43 @@
           "type": "textfield",
           "default": "30",
           "required": false
+        }
+      ]
+    },
+    {
+      "name": "search-apple-music",
+      "title": "Search Apple Music",
+      "subtitle": "Apple Music",
+      "description": "Search the Apple Music catalog for songs and albums, and add them to your library.",
+      "disabledByDefault": true,
+      "mode": "view",
+      "keywords": [
+        "search",
+        "catalog",
+        "album",
+        "song",
+        "library"
+      ]
+    },
+    {
+      "name": "just-play",
+      "title": "Just Play",
+      "subtitle": "Apple Music",
+      "description": "Quickly start playing a song from Apple Music based on your query.",
+      "mode": "no-view",
+      "disabledByDefault": true,
+      "keywords": [
+        "search",
+        "play",
+        "song",
+        "catalog"
+      ],
+      "arguments": [
+        {
+          "name": "query",
+          "placeholder": "Song / Artist",
+          "type": "text",
+          "required": true
         }
       ]
     }
@@ -1338,5 +1376,9 @@
   },
   "platforms": [
     "macOS"
-  ]
+  ],
+  "overrides": {
+    "brace-expansion": "5.0.9",
+    "js-yaml@4": "4.3.1"
+  }
 }

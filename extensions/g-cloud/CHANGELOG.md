@@ -1,5 +1,48 @@
 # Google Cloud CLI Changelog
 
+## [Fix Silent Empty Lists When gcloud Credentials Expire] - 2026-09-09
+
+- Fixed an expired gcloud session being treated as authenticated. `gcloud auth list` keeps reporting an account as `ACTIVE` after its refresh token has expired, so the extension stayed on the hub and every list — including the project dropdown — silently came back empty with no explanation. It now confirms the credentials still work and shows a **Session Expired** screen wired to the existing sign-in action. Failures that are not credential-related (a timeout, a network blip) are left alone so they still surface as real errors.
+
+## [Add Cloud SQL] - 2026-09-09
+
+### New Features
+- Added **Cloud SQL** to the service hub — browse instances with engine, machine type, region, high-availability and running state
+- Added an instance detail view covering connectivity (connection name, IP addresses, authorized networks, SSL mode), backup configuration, and the maintenance window
+- Added per-instance **databases** and **users** listings, and a **backups** view that lists backup runs and can trigger an on-demand backup with a custom description
+- Added copy actions for the instance name, connection name, public IP, and a ready-to-run `gcloud sql connect` command
+
+## [Fix Empty Project Dropdown on Accounts with Many Projects] - 2026-09-02
+
+- Fixed the project dropdown showing "No projects found" when `gcloud projects list` output exceeds 1 MB (roughly 3,500+ projects). `getProjects` relied on Node's default `execFile` `maxBuffer`, so the process was killed with `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` and the rejection was swallowed into an empty list. It now passes an explicit 64 MiB `maxBuffer`.
+
+## [1.1.0] - 2026-04-16
+
+### New Features
+- Added **Settings & Configuration** command — list, switch, create, duplicate, and delete named gcloud configurations
+- Added **Open Logs in IDE** action — exports visible log entries to a file and opens in your preferred editor
+- Added **time range filter** for Logging — filter by last 15 min, 1h, 6h, 24h, or 7 days
+- Added **Default Region** preference — pre-fills region in all create forms
+- Added **Default IDE** app picker preference
+
+### Improvements
+- Friendlier error messages with actionable hints across all service views
+- Cache eviction (max 200 entries) prevents unbounded memory growth
+- Timeouts on all gcloud CLI calls prevent UI hangs
+- Reduced auth/project cache TTL from 72 hours to 6 hours for fresher state
+- Config name validation to prevent invalid characters
+- Log search now filters client-side for faster, more predictable results — trades full server-side corpus search for instant filtering of the fetched entries
+- Retry backoff now uses jitter to avoid thundering herd
+- Safe JSON parsing — malformed gcloud output no longer crashes the extension
+
+### Bug Fixes
+- Fixed configuration activation failing when gcloud emits project-mismatch warnings
+- Fixed configuration creation failing on retry after partial success
+- Fixed Cloud Functions and Storage views not refetching when project changes
+- Fixed reserved Raycast keyboard shortcuts (Cmd+A, Cmd+Delete) causing warnings
+- Removed unused static regionsCache from NetworkService
+- Fixed N+1 API calls in ServiceHubService.isServiceEnabled
+
 ## [1.0.4] - 2026-02-10
 - Fixed JS heap out-of-memory crash in index command by limiting API response payloads
 - Deduplicated IAM policy modification logic into a single reusable method

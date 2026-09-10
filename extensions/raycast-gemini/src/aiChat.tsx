@@ -2,7 +2,6 @@ import {
   Action,
   ActionPanel,
   confirmAlert,
-  Form,
   getPreferenceValues,
   getSelectedText,
   Icon,
@@ -11,12 +10,15 @@ import {
   LocalStorage,
   showToast,
   Toast,
-  useNavigation,
   Alert,
 } from "@raycast/api";
 import { GoogleGenAI } from "@google/genai";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ensureUniqueChatName, generateChatTitle, isGeneratedChatName } from "./api/chatTitles";
 import { getSafetySettings } from "./api/safetySettings";
+import { useAvailableModels } from "./api/useAvailableModels";
+import { useActiveModel } from "./api/useActiveModel";
+import { normalizeModelName, DEFAULT_MODEL } from "./api/modelMigrations";
 
 interface ChatMessage {
   prompt: string;
@@ -52,19 +54,32 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
     });
   };
 
-  function showFailureToast(error: unknown, options: { title?: string; primaryAction?: Toast.ActionOptions } = {}) {
-    return showToast({
-      style: Toast.Style.Failure,
-      title: options.title || "Error",
-      message: error instanceof Error ? error.message : String(error),
-      primaryAction: options.primaryAction,
-    });
-  }
+  const { apiKey, prompt } = getPreferenceValues<Preferences.AiChat>();
+  const { models: availableModels, isLoading: modelsLoading } = useAvailableModels();
+  const { activeModel, isLoading: activeModelLoading } = useActiveModel();
+  const migratedDefault = normalizeModelName(DEFAULT_MODEL) ?? DEFAULT_MODEL;
+  const modelsSettled = !activeModelLoading && !modelsLoading;
 
-  const { apiKey, defaultModel } = getPreferenceValues<Preferences.AiChat>();
+  // App-wide default, used for new chats and for chats that carry no model of their own:
+  // the persisted default when Google still offers it, otherwise the first live model so a
+  // stored/deprecated model never lingers.
+  const defaultModel = useMemo(() => {
+    // A failed or empty live lookup means we have no evidence the persisted model is
+    // invalid, so honor it instead of swapping in the hardcoded fallback.
+    if (availableModels.length === 0) {
+      return activeModel ?? migratedDefault;
+    }
+    const activeValid = activeModel && availableModels.some((m) => m.name === activeModel);
+    return activeValid ? activeModel : (availableModels[0]?.name ?? migratedDefault);
+  }, [activeModel, availableModels, migratedDefault]);
+
+  // Lightweight model used to auto-title chats fetched from the live model list,
+  // falling back to the default model if none is available.
+  const titleModel = availableModels.find((m) => m.name.startsWith("gemini-3.5-flash-lite"))?.name ?? defaultModel;
+
   const genAI = new GoogleGenAI({ apiKey });
-  const createNewChatName = (prefix = "New Chat ") => {
-    const existingChatNames = chatData!.chats.map((x) => x.name);
+  const createNewChatName = (chats: ChatEntry[], prefix = "New Chat ") => {
+    const existingChatNames = chats.map((x) => x.name);
     const newChatNumbers = existingChatNames
       .filter((x) => x.match(/^New Chat \d+$/))
       .map((x) => parseInt(x.replace(prefix, "")));
@@ -75,62 +90,66 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
     return prefix + lowestAvailableNumber;
   };
 
-  const CreateChat = () => {
-    const { pop } = useNavigation();
+  const findDraftChat = (chats: ChatEntry[]) => {
+    return chats.find((chat) => chat.messages.length === 0 && isGeneratedChatName(chat.name)) ?? null;
+  };
 
-    return (
-      <Form
-        actions={
-          <ActionPanel>
-            <Action.SubmitForm
-              title="Create Chat"
-              onSubmit={(values: { chatName: string; model: string }) => {
-                const newName = values.chatName.trim() || createNewChatName();
-                if (chatData!.chats.map((x) => x.name).includes(newName)) {
-                  showFailureToast("Chat with that name already exists.");
-                } else {
-                  pop();
-                  setChatData((oldData) => {
-                    const newChatData = structuredClone(oldData!);
-                    newChatData.chats.push({
-                      name: newName,
-                      creationDate: new Date(),
-                      messages: [],
-                      model: values.model === "default" ? defaultModel : values.model,
-                    });
-                    newChatData.currentChat = newName;
+  const createChat = () => {
+    setSearchText("");
+    setChatData((oldData) => {
+      const newChatData = structuredClone(oldData!);
+      const existingDraft = findDraftChat(newChatData.chats);
+      if (existingDraft) {
+        newChatData.currentChat = existingDraft.name;
+        return newChatData;
+      }
 
-                    return newChatData;
-                  });
-                }
-              }}
-            />
-          </ActionPanel>
-        }
-      >
-        <Form.Description
-          title="Chat Name"
-          text="In each chat, Gemini will remember the previous messages you send in it."
-        />
-        <Form.TextField id="chatName" />
-        <Form.Description
-          title="Chat Model"
-          text="The model used for this chat. Setting this to Default will use the model you set as Default for the extension in Preferences."
-        />
-        <Form.Dropdown id="model" defaultValue="default">
-          <Form.Dropdown.Item title="Default" value="default" />
-          <Form.Dropdown.Item title="Gemini 2.5 Flash-Lite" value="gemini-2.5-flash-lite" />
-          <Form.Dropdown.Item title="Gemini 2.5 Flash" value="gemini-2.5-flash" />
-          <Form.Dropdown.Item title="Gemini 2.5 Pro" value="gemini-2.5-pro" />
-          <Form.Dropdown.Item title="Gemini 3.0 Flash" value="gemini-3-flash-preview" />
-          <Form.Dropdown.Item title="Gemini 3.1 Pro" value="gemini-3.1-pro-preview" />
-        </Form.Dropdown>
-      </Form>
-    );
+      const newName = createNewChatName(newChatData.chats);
+      newChatData.chats.push({
+        name: newName,
+        creationDate: new Date(),
+        messages: [],
+        model: defaultModel,
+      });
+      newChatData.currentChat = newName;
+      return newChatData;
+    });
+  };
+
+  const applyGeneratedChatTitle = (chatName: string, nextTitle: string) => {
+    setChatData((oldData) => {
+      if (!oldData) {
+        return oldData;
+      }
+
+      const newChatData = structuredClone(oldData);
+      const chat = getChat(chatName, newChatData.chats);
+      if (!chat || !isGeneratedChatName(chat.name) || chat.messages.length !== 1 || !chat.messages[0].finished) {
+        return oldData;
+      }
+
+      const uniqueTitle = ensureUniqueChatName(
+        nextTitle,
+        newChatData.chats.map((existingChat) => existingChat.name),
+        chat.name,
+      );
+      if (uniqueTitle === chat.name) {
+        return oldData;
+      }
+
+      chat.name = uniqueTitle;
+      if (newChatData.currentChat === chatName) {
+        newChatData.currentChat = uniqueTitle;
+      }
+      return newChatData;
+    });
   };
 
   const GeminiActionPanel = ({ idx }: { idx?: number } = {}) => {
     const currentChatObj = chatData ? getChat(chatData.currentChat) : null;
+    // Read the model off the chat that is open rather than from separate state, so switching
+    // chats can never show one chat's model while requests use another's.
+    const currentChatModel = currentChatObj?.model ?? defaultModel;
     const message =
       currentChatObj && typeof idx === "number" && currentChatObj.messages && currentChatObj.messages[idx]
         ? currentChatObj.messages[idx]
@@ -151,26 +170,6 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
 
     return (
       <ActionPanel>
-        {message && (
-          <ActionPanel.Section title="Copy">
-            <Action.CopyToClipboard title="Copy Answer" content={message.answer ?? ""} />
-            <Action.CopyToClipboard
-              title="Copy Prompt"
-              content={message.prompt ?? ""}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
-            />
-          </ActionPanel.Section>
-        )}
-
-        {fullChatText && (
-          <ActionPanel.Section title="Export">
-            <Action.CopyToClipboard
-              title="Copy Entire Chat (Transcript)"
-              content={fullChatText}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "e" }}
-            />
-          </ActionPanel.Section>
-        )}
         <Action
           icon={Icon.Message}
           title="Send to Gemini"
@@ -183,11 +182,13 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
             const query = searchText;
             setSearchText("");
             const currentChatObj = getChat(chatData!.currentChat)!;
+            const currentChatName = chatData!.currentChat;
+            const shouldGenerateTitle = currentChatObj.messages.length === 0;
             if (currentChatObj.messages.length == 0 || currentChatObj.messages[0].finished) {
               toast(Toast.Style.Animated, "Response Loading", "Please Wait");
               setChatData((x) => {
                 const newChatData = structuredClone(x!);
-                const currentChat = getChat(chatData!.currentChat, newChatData.chats)!;
+                const currentChat = getChat(currentChatName, newChatData.chats)!;
 
                 currentChat.messages.unshift({
                   prompt: query,
@@ -215,9 +216,16 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
                     model: modelName,
                     config: {
                       safetySettings: getSafetySettings(),
+                      ...(prompt?.trim() ? { systemInstruction: prompt.trim() } : {}),
                     },
                     history: historyMessages,
                   });
+                  const titlePromise = shouldGenerateTitle
+                    ? generateChatTitle(genAI, titleModel, query).catch((error) => {
+                        console.error("Failed to generate chat title", error);
+                        return null;
+                      })
+                    : null;
 
                   const result = await chatSession.sendMessageStream({
                     message: query,
@@ -228,7 +236,7 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
                     if (chunkText) {
                       setChatData((oldData) => {
                         const newChatData = structuredClone(oldData!);
-                        const chatToUpdate = getChat(chatData!.currentChat, newChatData.chats);
+                        const chatToUpdate = getChat(currentChatName, newChatData.chats);
                         if (chatToUpdate && chatToUpdate.messages[0]) {
                           chatToUpdate.messages[0].answer += chunkText;
                         }
@@ -239,15 +247,22 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
 
                   setChatData((oldData) => {
                     const newChatData = structuredClone(oldData!);
-                    getChat(chatData!.currentChat, newChatData.chats)!.messages[0].finished = true;
+                    getChat(currentChatName, newChatData.chats)!.messages[0].finished = true;
                     return newChatData;
                   });
+
+                  if (titlePromise) {
+                    const nextTitle = await titlePromise;
+                    if (nextTitle) {
+                      applyGeneratedChatTitle(currentChatName, nextTitle);
+                    }
+                  }
 
                   toast(Toast.Style.Success, "Response Loaded");
                 } catch (e: unknown) {
                   setChatData((oldData) => {
                     const newChatData = structuredClone(oldData!);
-                    getChat(chatData!.currentChat, newChatData.chats)!.messages.shift();
+                    getChat(currentChatName, newChatData.chats)!.messages.shift();
                     return newChatData;
                   });
                   console.error(e);
@@ -264,11 +279,63 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
             }
           }}
         />
+        <ActionPanel.Section title="Model">
+          <ActionPanel.Submenu
+            icon={Icon.Network}
+            title={`Model: ${currentChatModel}`}
+            shortcut={{ modifiers: ["cmd"], key: "m" }}
+          >
+            {availableModels.map((m) => (
+              <ActionPanel.Item
+                key={m.name}
+                title={m.displayName}
+                icon={m.name === currentChatModel ? Icon.Checkmark : Icon.Dot}
+                onAction={() => {
+                  setChatData((oldData) => {
+                    if (!oldData) {
+                      return oldData;
+                    }
+                    const newChatData = structuredClone(oldData);
+                    const currentChat = getChat(newChatData.currentChat, newChatData.chats);
+                    if (currentChat) {
+                      currentChat.model = m.name;
+                    }
+                    return newChatData;
+                  });
+                }}
+              />
+            ))}
+          </ActionPanel.Submenu>
+        </ActionPanel.Section>
+        {message && (
+          <ActionPanel.Section title="Copy">
+            <Action.CopyToClipboard
+              title="Copy Answer"
+              content={message.answer ?? ""}
+              shortcut={{ modifiers: ["cmd", "shift"], key: "x" }}
+            />
+            <Action.CopyToClipboard
+              title="Copy Prompt"
+              content={message.prompt ?? ""}
+              shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
+            />
+          </ActionPanel.Section>
+        )}
+
+        {fullChatText && (
+          <ActionPanel.Section title="Export">
+            <Action.CopyToClipboard
+              title="Copy Entire Chat (Transcript)"
+              content={fullChatText}
+              shortcut={{ modifiers: ["cmd", "shift"], key: "e" }}
+            />
+          </ActionPanel.Section>
+        )}
         <ActionPanel.Section title="Manage Chats">
-          <Action.Push
+          <Action
             icon={Icon.PlusCircle}
             title="Create Chat"
-            target={<CreateChat />}
+            onAction={createChat}
             shortcut={{ modifiers: ["cmd"], key: "n" }}
           />
           <Action
@@ -388,15 +455,26 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
   };
 
   const [chatData, setChatData] = useState<ChatData | null>(null);
+  const hasInitialized = useRef(false);
 
   useEffect(() => {
+    // Load stored chats exactly once, after the live model list and persisted default
+    // are known, so newly created chats are never stamped with a stale model.
+    if (!modelsSettled || hasInitialized.current) {
+      return;
+    }
+    hasInitialized.current = true;
     (async () => {
       const storedChatData = await LocalStorage.getItem<string>("chatData");
       if (storedChatData) {
         const newData: ChatData = JSON.parse(storedChatData);
+        for (const chat of newData.chats) {
+          chat.model = normalizeModelName(chat.model);
+        }
 
         if (getChat(newData.currentChat, newData.chats)?.messages[0]?.finished === false) {
           const currentChat = getChat(newData.currentChat, newData.chats)!;
+          const shouldGenerateTitle = currentChat.messages.length === 1;
           const historyMessages = currentChat.messages
             .slice(1)
             .reverse()
@@ -411,6 +489,7 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
             model: currentChat.model ?? defaultModel,
             config: {
               safetySettings: getSafetySettings(),
+              ...(prompt?.trim() ? { systemInstruction: prompt.trim() } : {}),
             },
             history: historyMessages,
           });
@@ -419,6 +498,13 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
           toast(Toast.Style.Animated, "Regenerating Last Message");
           (async () => {
             try {
+              const titlePromise = shouldGenerateTitle
+                ? generateChatTitle(genAI, titleModel, promptToRegen).catch((error) => {
+                    console.error("Failed to generate chat title", error);
+                    return null;
+                  })
+                : null;
+
               const result = await chatSession.sendMessageStream({
                 message: promptToRegen,
               });
@@ -442,6 +528,13 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
                 getChat(newData.currentChat, newChatData.chats)!.messages[0].finished = true;
                 return newChatData;
               });
+
+              if (titlePromise) {
+                const nextTitle = await titlePromise;
+                if (nextTitle) {
+                  applyGeneratedChatTitle(newData.currentChat, nextTitle);
+                }
+              }
 
               toast(Toast.Style.Success, "Response Loaded");
             } catch (e: unknown) {
@@ -493,6 +586,7 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
                 finished: true,
               },
             ],
+            model: defaultModel,
           });
           newChatData.currentChat = `Quick AI at ${new Date().toLocaleString("en-US", {
             month: "2-digit",
@@ -505,7 +599,7 @@ export default function Chat({ launchContext }: LaunchProps<{ launchContext: Cha
         });
       }
     })();
-  }, []);
+  }, [modelsSettled, defaultModel]);
 
   useEffect(() => {
     if (chatData) {

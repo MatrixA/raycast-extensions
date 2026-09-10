@@ -7,6 +7,7 @@ import { showToast, Toast } from "@raycast/api";
 import { useCachedPromise, MutatePromise } from "@raycast/utils";
 import {
   brewSearch,
+  clearCache,
   InstallableResults,
   InstalledMap,
   Cask,
@@ -17,12 +18,31 @@ import {
   SearchDownloadProgress,
   DownloadProgress,
   hasSearchCache,
+  invalidateChunkedCacheMemory,
+  invalidatePopularityRanks,
+  onIndexRefreshed,
+  PopularityRanks,
 } from "../utils";
 
 interface UseBrewSearchOptions {
   searchText: string;
   limit?: number;
   installed?: InstalledMap;
+  /** When given, results are ordered by install count instead of relevance. */
+  ranks?: PopularityRanks;
+  /**
+   * Bumped whenever `ranks` is replaced. Part of the cache key, because a
+   * refreshed set of rankings is a different result even though the previous
+   * key ("ranks exist") is unchanged — without it, Clear Cache & Retry would
+   * keep serving results ordered by the rankings it just deleted.
+   */
+  ranksVersion?: number;
+  /**
+   * Called after Clear Cache has deleted the on-disk caches. The rank hook owns
+   * its own copy of the rankings, so clearing the module-level cache alone would
+   * leave the hook serving data parsed from files that no longer exist.
+   */
+  onCacheCleared?: () => void;
 }
 
 /** Download progress for a single file */
@@ -77,6 +97,21 @@ interface UseBrewSearchResult {
   downloadProgressRef: { current: SearchDownloadProgress };
 }
 
+/**
+ * Heuristic: does this error look like the chunked cache is broken on disk?
+ * Covers the user-reported "Failed to build chunked cache" plus ENOENT on the
+ * generated index/meta/chunk files, which is what users hit after a failed
+ * build leaves the cache directory empty.
+ */
+function isLikelyCacheError(error: Error): boolean {
+  if (error.name === "ParseError") return true;
+  const message = error.message ?? "";
+  return (
+    /chunked cache/i.test(message) ||
+    (/ENOENT/i.test(message) && /(index\.json|meta\.json|chunk-\d+\.json|\/formula\/|\/cask\/)/.test(message))
+  );
+}
+
 /** Default progress state for a file */
 const defaultFileProgress: FileDownloadProgress = {
   started: false,
@@ -98,7 +133,7 @@ const defaultFileProgress: FileDownloadProgress = {
  *    installed data changes, ensuring we always have the latest combination
  */
 export function useBrewSearch(options: UseBrewSearchOptions): UseBrewSearchResult {
-  const { searchText, limit = 100, installed } = options;
+  const { searchText, limit = 100, installed, ranks, ranksVersion = 0, onCacheCleared } = options;
 
   // Track if we've ever received data (for initial load detection)
   const hasEverLoadedRef = useRef(false);
@@ -147,8 +182,9 @@ export function useBrewSearch(options: UseBrewSearchOptions): UseBrewSearchResul
     data: rawData,
     mutate,
   } = useCachedPromise(
-    async (query: string) => {
-      searchLogger.log("Starting search", { query, isInitialLoad: !hasEverLoadedRef.current });
+    async (query: string, ranksKey: number) => {
+      const useRanks = ranksKey > 0;
+      searchLogger.log("Starting search", { query, ranksKey, isInitialLoad: !hasEverLoadedRef.current });
 
       // Reset progress at start of search
       setDownloadProgress({ phase: "casks" });
@@ -156,29 +192,39 @@ export function useBrewSearch(options: UseBrewSearchOptions): UseBrewSearchResul
 
       // Fetch search results with progress tracking
       // Always track progress - the UI decides whether to show it based on hasCacheFiles
-      const result = await brewSearch(query, limit, abortable.current?.signal, (progress) => {
-        try {
-          if (abortable.current?.signal.aborted) return;
+      const result = await brewSearch(
+        query,
+        limit,
+        abortable.current?.signal,
+        (progress) => {
+          try {
+            if (abortable.current?.signal.aborted) return;
 
-          // Always update ref (no re-render cost)
-          downloadProgressRef.current = progress;
+            // Always update ref (no re-render cost)
+            downloadProgressRef.current = progress;
 
-          // Only trigger re-render on completion (not during concurrent downloads)
-          if (progress.phase === "complete") {
-            setDownloadProgress(progress);
+            // Only trigger re-render on completion (not during concurrent downloads)
+            if (progress.phase === "complete") {
+              setDownloadProgress(progress);
+            }
+          } catch (error) {
+            // Prevent callback errors from breaking the search
+            searchLogger.error("Progress callback error", {
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
-        } catch (error) {
-          // Prevent callback errors from breaking the search
-          searchLogger.error("Progress callback error", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      });
+        },
+        useRanks ? ranks : undefined,
+      );
 
       // brewSearch reports phase: "complete" with final totals via onProgress
       return result;
     },
-    [searchText],
+    // The ranks VERSION is part of the cache key, not merely whether ranks
+    // exist: turning the sort on, its data arriving, and its data being
+    // REPLACED all have to re-run the search. The Maps themselves are closed
+    // over — they are not serializable into a cache key.
+    [searchText, ranks == undefined ? 0 : ranksVersion || 1],
     {
       abortable,
       keepPreviousData: true,
@@ -197,10 +243,34 @@ export function useBrewSearch(options: UseBrewSearchOptions): UseBrewSearchResul
         const isLock = isBrewLockError(error);
         const message = getErrorMessage(error);
 
+        // Offer a Clear Cache action for failures that look like cache
+        // corruption — primarily "Failed to build chunked cache" and any
+        // ENOENT on chunked cache files. Clearing forces a fresh download
+        // on the next search, which is how users currently recover.
+        const isCacheError = !isLock && isLikelyCacheError(error);
+
         await showToast({
           style: Toast.Style.Failure,
           title: isLock ? "Brew is Busy" : "Search failed",
           message: isLock ? "Another brew process is running. Please wait and try again." : message,
+          primaryAction: isCacheError
+            ? {
+                title: "Clear Cache & Retry",
+                onAction: async (toast) => {
+                  await toast.hide();
+                  await clearCache();
+                  // Drop in-memory index so the next search rebuilds the
+                  // chunked cache from scratch rather than reusing entries
+                  // that point at the chunk files we just deleted.
+                  invalidateChunkedCacheMemory();
+                  // clearCache() removed the analytics files too: drop the
+                  // parsed copy, then re-run the load so it downloads again.
+                  invalidatePopularityRanks();
+                  onCacheCleared?.();
+                  await mutate();
+                },
+              }
+            : undefined,
         });
       },
     },
@@ -216,6 +286,17 @@ export function useBrewSearch(options: UseBrewSearchOptions): UseBrewSearchResul
       hasEverLoadedRef.current = true;
     }
   }, [rawData]);
+
+  // When a background index refresh swaps in fresh data, re-run the search so
+  // the UI reflects the updated index. The initial search runs against the
+  // stale on-disk index (for instant incremental search); this picks up any
+  // changes once the refresh completes.
+  useEffect(() => {
+    return onIndexRefreshed(() => {
+      searchLogger.log("Index refreshed in background, revalidating search");
+      mutate();
+    });
+  }, [mutate]);
 
   // Apply installed status to search results whenever either changes
   const data = useMemo(() => {
@@ -370,9 +451,11 @@ function applyInstalledStatus(results: InstallableResults, installed?: Installed
     if (info && isCask(info)) {
       cask.installed = info.installed;
       cask.outdated = info.outdated;
+      cask.pinned = info.pinned;
     } else {
       cask.installed = undefined;
       cask.outdated = false;
+      cask.pinned = false;
     }
   }
 }
@@ -384,7 +467,9 @@ function isCask(installable: Installable): installable is Cask {
 }
 
 function isFormula(installable: Installable): installable is Formula {
-  return (installable as Formula).pinned != undefined;
+  // Not `pinned`: casks report that too since cask pinning landed. `token` is
+  // the discriminator (see isCask), so its ABSENCE identifies a formula.
+  return (installable as Cask).token === undefined;
 }
 
 /**

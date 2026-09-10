@@ -1,5 +1,35 @@
 # Wispr Flow Changelog
 
+## [Fix Transcript Selection on Open] - 2026-09-03
+
+- Fixed Search Transcripts restoring the previously viewed transcript as the selected row, leaving the highlight below newly recorded entries
+- Fixed the selection landing in the last date section under the Oldest First, Longest Duration, and Most Words sort orders
+- Fixed the selection anchoring to an archived transcript after it left the results
+
+## [Add Windows Support] - 2026-04-30
+
+### Platform Support
+- Added Windows
+- Added platform-specific handling for the default database path, app detection, and opening Wispr Flow commands
+
+### Database and Commands
+- Updated write operations to use the shared async SQL helper
+- Updated add, edit, delete, and archive actions to await database writes before refreshing UI state
+- Updated start recording, stop recording, and open app commands to use the shared Wispr Flow opener
+
+### Maintenance
+- Updated Raycast and TypeScript-related dependencies
+
+## [Update] - 2026-04-22
+
+### Voice Control
+- Added Toggle Recording command to start/stop dictation with a single hotkey
+
+## [Update] - 2026-03-23
+
+### Transcription History
+- Added a Paste Last Transcript command to paste the latest unarchived Wispr Flow transcript into the active app
+
 ## [Initial Release] - 2026-03-04
 
 ### Transcription History

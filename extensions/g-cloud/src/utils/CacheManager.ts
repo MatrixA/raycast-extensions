@@ -19,21 +19,14 @@ export const CACHE_KEYS = {
 };
 
 export const CACHE_TTL = {
-  AUTH: 72 * 60 * 60 * 1000,
-  PROJECT: 72 * 60 * 60 * 1000,
+  AUTH: 6 * 60 * 60 * 1000, // 6 hours
+  PROJECT: 6 * 60 * 60 * 1000, // 6 hours
   PROJECTS_LIST: 6 * 60 * 60 * 1000,
   SERVICE_COUNTS: 5 * 60 * 1000, // 5 minutes
 };
 
 export type ResourceType =
-  | "compute"
-  | "storage"
-  | "iam"
-  | "network"
-  | "secrets"
-  | "cloudrun"
-  | "cloudfunctions"
-  | "logs";
+  "compute" | "storage" | "iam" | "network" | "secrets" | "cloudrun" | "cloudfunctions" | "cloudsql" | "logs";
 
 export interface RecentResource {
   id: string;
@@ -53,6 +46,7 @@ export interface ServiceCounts {
   secrets: number;
   cloudrun: number;
   cloudfunctions: number;
+  cloudsql: number;
   cloudbuild: number;
   timestamp: number;
 }
@@ -140,7 +134,14 @@ export class CacheManager {
 
     const cacheLimit = CacheManager.getCacheLimit();
     const recentlyUsedStr = cache.get(CACHE_KEYS.RECENTLY_USED_PROJECTS);
-    let recentlyUsed: string[] = recentlyUsedStr ? JSON.parse(recentlyUsedStr) : [];
+    let recentlyUsed: string[] = [];
+    if (recentlyUsedStr) {
+      try {
+        recentlyUsed = JSON.parse(recentlyUsedStr);
+      } catch {
+        recentlyUsed = [];
+      }
+    }
 
     recentlyUsed = recentlyUsed.filter((id) => id !== projectId);
 
@@ -333,7 +334,7 @@ export class CacheManager {
 
       try {
         const { executeGcloudCommand } = await import("../gcloud");
-        const result = await executeGcloudCommand(gcloudPath, `projects describe ${projectId}`);
+        const result = await executeGcloudCommand(gcloudPath, ["projects", "describe", projectId]);
 
         if (result && Array.isArray(result) && result.length > 0) {
           const projectDetails = result[0];
